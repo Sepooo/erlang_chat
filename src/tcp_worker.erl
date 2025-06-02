@@ -1,7 +1,7 @@
 -module(tcp_worker).
 -behaviour(gen_server).
 
-% Funzione pubblica
+% Public function
 -export([start_link/4]).
 
 % Callback gen_server
@@ -30,9 +30,8 @@ handle_cast(_Msg, State) ->
 handle_info(accept, #{sock := LSock} = State) ->
     case gen_tcp:accept(LSock) of
         {ok, ClientSocket} ->
-            %% Qui dovresti spawnare un handler per il client
             io:format("Nuova connessione: ~p~n", [ClientSocket]),
-            %% Continua ad accettare connessioni
+            spawn(fun() -> chat_client_handler:start(ClientSocket) end),
             self() ! accept,
             {noreply, State};
         {error, closed} ->
