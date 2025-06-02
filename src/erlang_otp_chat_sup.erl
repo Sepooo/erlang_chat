@@ -1,5 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc erlang_otp_chat top level supervisor.
+%%      Nicolò Priano 1/06/25
 %% @end
 %%%-------------------------------------------------------------------
 
@@ -7,31 +8,33 @@
 
 -behaviour(supervisor).
 
--export([start_link/0]).
+-export([start_link/4, start_child/1]).
 
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
 
-start_link() ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+start_link(Callback, IP, Port, UserArgs) ->
+    {ok, Pid} = supervisor:start_link(?MODULE, [Port]),
+    start_child(Pid),
+    {ok, Pid}.
 
-%% sup_flags() = #{strategy => strategy(),         % optional
-%%                 intensity => non_neg_integer(), % optional
-%%                 period => pos_integer()}        % optional
-%% child_spec() = #{id => child_id(),       % mandatory
-%%                  start => mfargs(),      % mandatory
-%%                  restart => restart(),   % optional
-%%                  shutdown => shutdown(), % optional
-%%                  type => worker(),       % optional
-%%                  modules => modules()}   % optional
-init([]) ->
+start_child(Server) ->
+    supervisor:start_child(Server, []).
+
+init([Callback, IP, Port, UserArgs]) ->
+%    SocketOptions = [binary, {active, false}, {reuseaddr, true}, {ip, IP}],
+%    {ok, LSock} = gen_tcp:listen(Port, SocketOptions),
     SupFlags = #{
-        strategy => one_for_all,
+        strategy => simple_one_for_one,
         intensity => 0,
         period => 1
     },
-    ChildSpecs = [],
-    {ok, {SupFlags, ChildSpecs}}.
-
-%% internal functions
+    ChildSpec = #{
+        id => tcp_worker,
+        start => {tcp_worker, start_link, [Callback, LSock, UserArgs]},
+        restart => transient,
+        type => worker,
+        modules => [tcp_worker]
+    },
+    {ok, {SupFlags, [ChildSpec]}}.
