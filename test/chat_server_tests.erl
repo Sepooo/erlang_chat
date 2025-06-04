@@ -45,3 +45,108 @@ tcp_echo_test() ->
     
     ?assertNot(is_process_alive(PidSup)),
     ?assertNot(is_process_alive(PidWorker)).
+
+% Test 4: room creation
+room_creation_test() ->
+    {ok, Pid} = room:start_link(<<"test_room">>, alice),
+    ?assert(is_pid(Pid)),
+    exit(Pid, normal).
+
+% Test 5: user joins a room
+join_user_test() ->
+    flush_mailbox(),
+    {ok, RoomPid} = room:start_link(<<"room1">>, alice),
+    TestPid = self(),
+    
+    % Spawn a fake client to simulate the user
+    ClientPid = spawn(fun() -> 
+        receive 
+            Message -> 
+                TestPid ! Message
+        end 
+    end),
+
+    RoomPid ! {join, bob, ClientPid},
+
+    receive
+        {info, Message} ->
+            ?assertEqual(<<"You joined room: room1\r\n">>, Message)
+    after 1000 ->
+        ?assert(false)
+    end,
+    exit(RoomPid, normal).
+
+% Test 6: broadcast a message into a room
+broadcast_message_test() ->
+    {ok, RoomPid} = room:start_link(<<"room2">>, alice),
+    TestPid = self(),
+
+    % Client fake ricorsivo che inoltra tutti i messaggi a TestPid
+    ClientPid = spawn(fun() -> client_loop(TestPid) end),
+
+    RoomPid ! {join, bob, ClientPid},
+
+    receive {info, _} -> ok
+    after 1000 -> ?assert(false) end,
+    
+    RoomPid ! {broadcast, bob, <<"Hello everyone!">>},
+    
+    receive
+        {message, <<"room2">>, bob, <<"Hello everyone!">>} -> ok
+    after 1000 -> ?assert(false) end,
+
+    exit(RoomPid, normal).
+
+client_loop(TestPid) ->
+    receive
+        Message ->
+            TestPid ! Message,
+            client_loop(TestPid)
+    end.
+
+% Test 7: join and quit room
+quit_room_test() ->
+    flush_mailbox(),
+    {ok, RoomPid} = room:start_link(<<"room3">>, alice),
+    Self = self(),
+    RoomPid ! {join, charlie, Self},
+    
+    receive 
+        {info, _} -> 
+            ok 
+        after 1000 -> 
+            ?assert(false) 
+    end,
+    
+    RoomPid ! {quit, charlie},
+    exit(RoomPid, normal).
+
+% Test 8: owner closes room
+close_room_by_owner_test() ->
+    flush_mailbox(),
+    {ok, RoomPid} = room:start_link(<<"room4">>, diana),
+    Self = self(),
+    RoomPid ! {join, eric, Self},
+
+    receive 
+        {info, _} -> 
+            ok 
+        after 1000 -> 
+            ?assert(false) 
+    end,
+
+    RoomPid ! {close, diana},
+    
+    receive
+        {info, <<"Room closed by owner.">>} ->
+            ok
+    after 1000 ->
+        ?assert(false)
+    end.
+
+% helper function to clear process mailbox
+flush_mailbox() ->
+    receive
+        _Any -> flush_mailbox()
+    after 0 -> ok
+    end.
