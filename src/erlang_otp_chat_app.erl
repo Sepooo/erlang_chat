@@ -11,6 +11,7 @@
 
 start(_StartType, _StartArgs) ->
     erlang_otp_chat_sup:start_link(), % Starts main supervisor
+    erlang_otp_chat_sup:start_tcp_worker(undefined, {0,0,0,0}, 8080, []),
     room_registry:start_link(). % Initialize ETS for rooms
 
 stop(_State) ->
