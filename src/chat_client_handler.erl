@@ -117,7 +117,6 @@ room_loop(Socket, Nickname, Room) ->
         {user_input, <<"/quit">>} ->
             room_registry:quit_room(Room, Nickname),
             gen_tcp:send(Socket, <<"Quitted room: ", Room/binary, "\r\n">>),
-            self() ! stop_reader,
             start_hub(Socket, Nickname);
 
         {user_input, Msg} ->
@@ -152,7 +151,11 @@ socket_reader(Socket, Parent) ->
             error_logger:info_msg("Sending: ~p~n", [Message]),
             Parent ! {user_input, Message},
             socket_reader(Socket, Parent);
+        
         {error, closed} ->
+            Parent ! {socket_closed};
+        
+        {error, ealready} -> 
             Parent ! {socket_closed}
     end.
 
