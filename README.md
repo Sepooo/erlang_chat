@@ -18,7 +18,6 @@
 * From rebar3
             
             rebar3 shell
-            application:start(erlang_otp_chat).
 
 * Run as Daemon (background process)
             
