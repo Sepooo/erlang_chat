@@ -96,6 +96,29 @@ hub_loop(Socket, Nickname) ->
                     end,
                     hub_loop(Socket, Nickname);
             
+                [<<"/invite">>, Invited, RoomName] ->
+                    case room_registry:get_room_pid(RoomName) of
+                        {ok, RoomPid} -> 
+                            case room_registry:get_owner(RoomName) of
+                                {ok, Nickname} -> % if you are the owner
+                                    case user_registry:get_pid(Invited) of
+                                        {ok, ToPid} ->
+                                            RoomPid ! {invite, Nickname, ToPid, Invited},
+                                            gen_tcp:send(Socket, <<"Invitation sent to ", Invited/binary, "\r\n">>);
+                                        {error, user_not_found} ->
+                                            gen_tcp:send(Socket, <<"User not found\r\n">>)
+                                    end;
+
+                                {ok, OtherUser} when OtherUser =/= Nickname ->
+                                    gen_tcp:send(Socket, <<"You are not the owner of this room!\r\n">>);
+                                error ->
+                                    gen_tcp:send(Socket, <<"Error checking room ownership\r\n">>)
+                            end;
+                        {error, not_found} ->
+                            gen_tcp:send(Socket, <<"Room not found\r\n">>)
+                    end,
+                    hub_loop(Socket, Nickname);    
+
                 _ ->
                     gen_tcp:send(Socket, <<"Unknown command.\r\n">>),
                     hub_loop(Socket, Nickname)
@@ -103,6 +126,12 @@ hub_loop(Socket, Nickname) ->
 
         {private, From, Message} ->
             gen_tcp:send(Socket, <<"[From: ", From/binary, "] ", Message/binary, "\r\n">>),
+            hub_loop(Socket, Nickname);
+
+        {invitation, RoomName, From} ->
+            gen_tcp:send(Socket, <<From/binary, " has invited you to the room: ", RoomName/binary,
+                                    ". Type /accept ", RoomName/binary,
+                                    " or /decline ", RoomName/binary, "\r\n">>),
             hub_loop(Socket, Nickname);
 
         {error, closed} ->
