@@ -13,8 +13,14 @@ recv_loop(Socket, Nickname) ->
             io:format("Received data: ~p~n", [Data]),
             case parse_nickname(Data) of
                 {ok, NewNick} ->
-                    gen_tcp:send(Socket, <<"Welcome ", NewNick/binary, "!\r\n">>),
-                    recv_loop(Socket, NewNick);
+                    case user_registry:register(NewNick, self()) of % Registration
+                        ok -> 
+                            gen_tcp:send(Socket, <<"Welcome ", NewNick/binary, "!\r\n">>),
+                            recv_loop(Socket, NewNick);
+                        {error, already_registered} ->
+                            gen_tcp:send(Socket, <<"Nickname already in use. Please choose another one: ">>),
+                            recv_loop(Socket, undefined)
+                    end;
                 error -> 
                     gen_tcp:send(Socket, <<"Nickname is not valid. Please retry: ">>),
                 recv_loop(Socket, undefined)
@@ -56,6 +62,7 @@ recv_loop(Socket, Nickname) ->
 
         {error, closed} ->
             io:format("Client disconnected~n"),
+            user_registry:unregister(Nickname),
             gen_tcp:close(Socket);
 
         {error, Reason} -> 

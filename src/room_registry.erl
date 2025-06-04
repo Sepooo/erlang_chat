@@ -18,10 +18,10 @@ create_room(RoomName, Creator) ->
             {error, already_exists}
     end.
 
-join_room(RoomName, Nick) ->
+join_room(RoomName, Nickname) ->
     case ets:lookup(?TABLE, RoomName) of
         [{_, Pid}] ->
-            Pid ! {join, Nick, self()},
+            Pid ! {join, Nickname, self()},
             ok;
         [] ->
             {error, room_not_found}
@@ -39,19 +39,19 @@ broadcast(RoomName, From, Message) ->
 list_rooms() ->
     ets:tab2list(?TABLE).
 
-quit_room(RoomName, Nick) ->
+quit_room(RoomName, Nickname) ->
     case ets:lookup(?TABLE, RoomName) of
         [{_, Pid}] ->
-            Pid ! {quit, Nick},
+            Pid ! {quit, Nickname},
             ok;
         [] ->
             {error, room_not_found}
     end.
 
-close_room(RoomName, Nick) ->
+close_room(RoomName, Nickname) ->
     case ets:lookup(?TABLE, RoomName) of
         [{_, Pid}] ->
-            Pid ! {close, Nick},
+            Pid ! {close, Nickname},
             ets:delete(?TABLE, RoomName),
             ok;
         [] ->

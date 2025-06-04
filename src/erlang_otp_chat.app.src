@@ -13,7 +13,8 @@
         erlang_otp_chat_sup,
         tcp_worker,
         room,
-        room_registry
+        room_registry,
+        user_registry
     ]},
     {licenses, ["Apache-2.0"]},
     {links, []}
