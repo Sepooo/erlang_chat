@@ -26,7 +26,7 @@ unregister(Nickname) ->
 get_pid(Nickname) ->
     case ets:lookup(?TABLE, Nickname) of
         [{_, Pid}] -> {ok, Pid};
-        [] -> {error, not_found}
+        [] -> {error, user_not_found}
     end.
 
 list_users() ->

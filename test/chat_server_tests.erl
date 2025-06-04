@@ -24,6 +24,8 @@ tcp_worker_start_test() ->
 
 % Test 3: connection to TCP and input Nickname
 tcp_echo_test() ->
+    user_registry:start_link(),
+
     {ok, PidSup} = erlang_otp_chat_sup:start_link(),
     {ok, PidWorker} = erlang_otp_chat_sup:start_tcp_worker(undefined, {0,0,0,0}, 8080, []),
 
@@ -143,6 +145,27 @@ close_room_by_owner_test() ->
     after 1000 ->
         ?assert(false)
     end.
+
+% Test 9: client connects and sends command /create
+create_room_command_test() ->
+    {ok, PidSup} = erlang_otp_chat_sup:start_link(),
+    {ok, _PidWorker} = erlang_otp_chat_sup:start_tcp_worker(undefined, {0,0,0,0}, 8080, []),
+    timer:sleep(100),
+
+    {ok, Socket} = gen_tcp:connect("localhost", 8080, [binary, {active, false}]),
+
+    gen_tcp:recv(Socket, 0), % recive prompt
+    gen_tcp:send(Socket, <<"Paolo\r\n">>),
+    gen_tcp:recv(Socket, 0), % welcome message
+
+    gen_tcp:send(Socket, <<"/create myroom\r\n">>), %c client sends command
+    {ok, Response} = gen_tcp:recv(Socket, 0),
+
+    ?assertEqual(<<"Room created: myroom\r\n">>, Response),
+
+    gen_tcp:close(Socket),
+    exit(PidSup, normal),
+    timer:sleep(100).
 
 % helper function to clear process mailbox
 flush_mailbox() ->
