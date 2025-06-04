@@ -65,7 +65,7 @@ recv_loop(Socket, Nickname) ->
 
 recv_loop(Socket, Nickname, Room) ->
     Parent = self(),
-    %% Spawna processo reader
+    %% Spawns reader process
     spawn_link(fun() -> socket_reader(Socket, Parent) end),
     process_loop(Socket, Nickname, Room).
 

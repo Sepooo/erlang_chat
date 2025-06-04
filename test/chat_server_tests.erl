@@ -2,7 +2,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -compile(export_all).
 
-% Test 1: verifica che il supervisor principale parta correttamente
+% Test 1: checks if supervisor starts correctly
 start_stop_supervisor_test() ->
     {ok, Pid} = erlang_otp_chat_sup:start_link(),
     ?assert(is_pid(Pid)),
@@ -10,7 +10,7 @@ start_stop_supervisor_test() ->
     timer:sleep(100),
     ?assertNot(is_process_alive(Pid)).
 
-% Test 2: avvio del worker TCP
+% Test 2: start TCP worker
 tcp_worker_start_test() ->
     {ok, PidSup} = erlang_otp_chat_sup:start_link(),
     {ok, PidWorker} = erlang_otp_chat_sup:start_tcp_worker(undefined, {0,0,0,0}, 8080, []),
@@ -22,7 +22,7 @@ tcp_worker_start_test() ->
     ?assertNot(is_process_alive(PidSup)),
     ?assertNot(is_process_alive(PidWorker)).
 
-% Test 3: connessione TCP e input Nickname
+% Test 3: connection to TCP and input Nickname
 tcp_echo_test() ->
     {ok, PidSup} = erlang_otp_chat_sup:start_link(),
     {ok, PidWorker} = erlang_otp_chat_sup:start_tcp_worker(undefined, {0,0,0,0}, 8080, []),
@@ -81,7 +81,7 @@ broadcast_message_test() ->
     {ok, RoomPid} = room:start_link(<<"room2">>, alice),
     TestPid = self(),
 
-    % Client fake ricorsivo che inoltra tutti i messaggi a TestPid
+    % fake client that sends messages
     ClientPid = spawn(fun() -> client_loop(TestPid) end),
 
     RoomPid ! {join, bob, ClientPid},
