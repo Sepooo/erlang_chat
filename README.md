@@ -16,7 +16,18 @@ rebar3 compile
 rebar3 as prod release
 
 ## How to run the application
+- From rebar3
+```bash
+rebar3 shell
+application:start(erlang_otp_chat).
+
+- Run as Daemon (background process)
+```bash
 _build/prod/rel/erlang_otp_chat/bin/erlang_otp_chat start
+
+to stop it:
+```bash
+_build/prod/rel/erlang_otp_chat/bin/erlang_otp_chat stop
 
 ## Unit test
 rebar3 eunit
