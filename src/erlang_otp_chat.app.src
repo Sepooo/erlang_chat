@@ -1,14 +1,20 @@
 {application, erlang_otp_chat, [
-    {description, "An OTP application"},
+    {description, "OTP Chat Server"},
     {vsn, "0.1.0"},
-    {registered, []},
+    {registered, [room_registry]},
     {mod, {erlang_otp_chat_app, []}},
     {applications, [
         kernel,
         stdlib
     ]},
     {env, []},
-    {modules, []},
+    {modules, [
+        erlang_otp_chat_app,
+        erlang_otp_chat_sup,
+        tcp_worker,
+        room,
+        room_registry
+    ]},
     {licenses, ["Apache-2.0"]},
     {links, []}
  ]}.

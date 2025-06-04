@@ -46,15 +46,8 @@ recv_loop(Socket, Nickname) ->
                 [<<"LIST">>] ->
                     Rooms = room_registry:list_rooms(),
                     gen_tcp:send(Socket, list_to_binary(io_lib:format("Rooms: ~p\r\n", [Rooms])));
-                
-                [<<"MESSAGE">>, Content] ->
-                    case string:split(Content, ":", leading) of
-                        [Room, Message] ->
-                            room_registry:broadcast(Room, Nickname, Message),
-                            gen_tcp:send(Socket, <<"-> ", Message/binary, "\r\n">>);
-                        _ ->
-                            gen_tcp:send(Socket, <<"Unknown command.\r\n">>)
-                    end
+                _ ->
+                    gen_tcp:send(Socket, <<"Unknown command.\r\n">>)
             end,
             recv_loop(Socket, Nickname);
 
