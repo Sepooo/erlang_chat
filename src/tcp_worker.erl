@@ -30,7 +30,7 @@ handle_cast(_Msg, State) ->
 handle_info(accept, #{sock := LSock} = State) ->
     case gen_tcp:accept(LSock) of
         {ok, ClientSocket} ->
-            io:format("Nuova connessione: ~p~n", [ClientSocket]),
+            error_logger:info_msg("Nuova connessione: ~p~n", [ClientSocket]),
             spawn(fun() -> chat_client_handler:start(ClientSocket) end),
             self() ! accept,
             {noreply, State};

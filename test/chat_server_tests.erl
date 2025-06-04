@@ -148,6 +148,8 @@ close_room_by_owner_test() ->
 
 % Test 9: client connects and sends command /create
 create_room_command_test() ->
+    room_registry:start_link(),
+
     {ok, PidSup} = erlang_otp_chat_sup:start_link(),
     {ok, _PidWorker} = erlang_otp_chat_sup:start_tcp_worker(undefined, {0,0,0,0}, 8080, []),
     timer:sleep(100),
@@ -166,6 +168,76 @@ create_room_command_test() ->
     gen_tcp:close(Socket),
     exit(PidSup, normal),
     timer:sleep(100).
+
+
+% Test 10: two clients create two rooms, and another client send /list
+list_rooms_command_test() ->
+    {ok, Sup} = erlang_otp_chat_sup:start_link(),
+    {ok, _} = erlang_otp_chat_sup:start_tcp_worker(undefined, {127,0,0,1}, 8080, []),
+    timer:sleep(100),
+
+    create_client_with_cmd("user1", <<"/create roomA\r\n">>),
+    create_client_with_cmd("user2", <<"/create roomB\r\n">>),
+
+    % third client
+    {ok, Sock} = gen_tcp:connect("localhost", 8080, [binary, {active, false}]),
+    gen_tcp:recv(Sock, 0), % receive prompt
+    gen_tcp:send(Sock, <<"user3\r\n">>),
+    gen_tcp:recv(Sock, 0), % welcome message
+
+    gen_tcp:send(Sock, <<"/list\r\n">>),
+    {ok, Response} = gen_tcp:recv(Sock, 0),
+
+    ?assert(binary:match(Response, <<"roomA">>) /= nomatch),
+    ?assert(binary:match(Response, <<"roomB">>) /= nomatch),
+
+    gen_tcp:close(Sock),
+    exit(Sup, normal),
+    timer:sleep(100).
+
+% Test 11: simulates a private message exchange between two users
+private_message_test() ->
+    {ok, Sup} = erlang_otp_chat_sup:start_link(),
+    {ok, _} = erlang_otp_chat_sup:start_tcp_worker(undefined, {127,0,0,1}, 8080, []),
+    timer:sleep(100),
+
+    % Client 1
+    {ok, Sock1} = gen_tcp:connect("localhost", 8080, [binary, {active, false}]),
+    gen_tcp:recv(Sock1, 0),
+    gen_tcp:send(Sock1, <<"Pippo\r\n">>),
+    gen_tcp:recv(Sock1, 0),
+
+    % Client 2
+    {ok, Sock2} = gen_tcp:connect("localhost", 8080, [binary, {active, false}]),
+    gen_tcp:recv(Sock2, 0),
+    gen_tcp:send(Sock2, <<"Pluto\r\n">>),
+    gen_tcp:recv(Sock2, 0),
+
+    % Pippo sends message to Pluto
+    gen_tcp:send(Sock2, <<"/to Pippo Ciao pippo!\r\n">>),
+    {ok, RespPippo} = gen_tcp:recv(Sock1, 0),
+    ?assertMatch(<<"[From: Pluto] Ciao pippo!\r\n">>, RespPippo),
+
+    gen_tcp:close(Sock1),
+    gen_tcp:close(Sock2),
+    exit(Sup, normal),
+    timer:sleep(100).
+
+
+%%%%%%%% =========== HELPER FUNCTIONS =========== %%%%%%%%
+%%% 
+% helper function to create a new client who registers and sends a command
+create_client_with_cmd(Nick, Command) ->
+    {ok, Sock} = gen_tcp:connect("localhost", 8080, [binary, {active, false}]),
+    gen_tcp:recv(Sock, 0),
+
+    NickBin = list_to_binary(Nick), 
+    gen_tcp:send(Sock, <<NickBin/binary, "\r\n">>),
+    
+    gen_tcp:recv(Sock, 0),
+    gen_tcp:send(Sock, Command),
+    gen_tcp:recv(Sock, 0),
+    gen_tcp:close(Sock).
 
 % helper function to clear process mailbox
 flush_mailbox() ->
