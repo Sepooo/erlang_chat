@@ -1,5 +1,5 @@
 -module(room_registry).
--export([start_link/0, create_room/2, join_room/2, broadcast/3, list_rooms/0, quit_room/2, close_room/2]).
+-export([start_link/0, create_room/3, join_room/2, broadcast/3, list_rooms/0, quit_room/2, close_room/2]).
 
 %% State: ETS o un processo con mappa RoomName -> Pid
 -define(TABLE, room_registry).
@@ -8,10 +8,10 @@ start_link() ->
     ets:new(?TABLE, [named_table, public, set]),
     {ok, self()}.
 
-create_room(RoomName, Creator) ->
+create_room(RoomName, Creator, IsPrivate) ->
     case ets:lookup(?TABLE, RoomName) of
         [] ->
-            {ok, Pid} = room:start_link(RoomName, Creator),
+            {ok, Pid} = room:start_link(RoomName, Creator, IsPrivate),
             ets:insert(?TABLE, {RoomName, Pid}),
             ok;
         _ ->

@@ -50,8 +50,13 @@ hub_loop(Socket, Nickname) ->
             Commands = binary:split(Data, <<" ">>, [global, trim]),
             case Commands of
                 [<<"/create">>, Room] ->
-                    room_registry:create_room(Room, Nickname),
+                    room_registry:create_room(Room, Nickname, false),
                     gen_tcp:send(Socket, <<"Room created: ", Room/binary, "\r\n">>),
+                    hub_loop(Socket, Nickname);
+
+                [<<"/private">>, Room] ->
+                    room_registry:create_room(Room, Nickname, true),
+                    gen_tcp:send(Socket, <<"Private room created: ", Room/binary, "\r\n">>),
                     hub_loop(Socket, Nickname);
                 
                 [<<"/join">>, Room] ->
