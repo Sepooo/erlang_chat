@@ -7,7 +7,12 @@ start(Socket) ->
     gen_tcp:send(Socket, <<"Please, enter your nickname: ">>),
     nickname_loop(Socket).
 
-% Registration loop. It handles the user input to registrate the client as a new user
+%%%%%%%%
+%%% 
+%%%  REGISTRATION LOOP 
+%%%  Handles the user input to registrate the client as a new user
+%%%
+%%%%%%%% 
 nickname_loop(Socket) ->
     case gen_tcp:recv(Socket, 0) of
         {ok, Data} ->
@@ -15,7 +20,7 @@ nickname_loop(Socket) ->
                 {ok, NewNick} ->
                     case user_registry:register(NewNick, self()) of % Registration
                         ok -> 
-                            gen_tcp:send(Socket, <<"Welcome ", NewNick/binary, "!\r\n">>),
+                            gen_tcp:send(Socket, <<"Welcome ", NewNick/binary, "!\nType /help for commands\r\n">>),
                             start_hub(Socket, NewNick);
                         {error, already_registered} ->
                             gen_tcp:send(Socket, <<"Nickname already in use. Please choose another one: ">>),
@@ -43,6 +48,13 @@ start_hub(Socket, Nickname) ->
     spawn_link(fun() -> socket_reader(Socket, Parent) end),
     hub_loop(Socket, Nickname).
 
+%%%%%%%%
+%%% 
+%%%  HUB LOOP 
+%%%  This is the section outside of a room, where the user can create rooms,
+%%%  close a room, invite a user or check the room list
+%%%
+%%%%%%%% 
 hub_loop(Socket, Nickname) ->
     error_logger:info_msg("Entered hub_loop (~p)~n", [self()]),
     receive
@@ -77,11 +89,6 @@ hub_loop(Socket, Nickname) ->
                             gen_tcp:send(Socket, <<"Room did not respond.\r\n">>),
                             hub_loop(Socket, Nickname)
                     end;
-
-                [<<"/quit">>, Room] ->
-                    room_registry:quit_room(Room, Nickname),
-                    gen_tcp:send(Socket, <<"Quitted room: ", Room/binary, "\r\n">>),
-                    hub_loop(Socket, Nickname);
 
                 [<<"/close">>, Room] ->
                     room_registry:close_room(Room, Nickname),
@@ -141,11 +148,45 @@ hub_loop(Socket, Nickname) ->
                     case room_registry:get_room_pid(RoomName) of
                         {ok, RoomPid} ->
                             RoomPid ! {accept_invite, Nickname, self()},
-                            room_loop(Socket, Nickname, RoomName);
+                            receive
+                                {join_ok} ->
+                                    gen_tcp:send(Socket, <<"You have joined room: ", RoomName/binary, "\r\n">>),
+                                    room_loop(Socket, Nickname, RoomName);
+                                {join_denied} ->
+                                    gen_tcp:send(Socket, <<"You are not invited to this room.\r\n">>),
+                                    hub_loop(Socket, Nickname)
+                            after 1000 ->
+                                gen_tcp:send(Socket, <<"Room did not respond.\r\n">>),
+                                hub_loop(Socket, Nickname)
+                            end;
                         _ ->
                             gen_tcp:send(Socket, <<"Room not found\r\n">>),
                             hub_loop(Socket, Nickname)
                     end;
+
+                [<<"/users">>] ->
+                    Users = user_registry:list_users(),
+                    Formatted = io_lib:format("Connected users: ~p\r\n", [Users]),
+                    gen_tcp:send(Socket, list_to_binary(Formatted)),
+                    hub_loop(Socket, Nickname);
+
+                [<<"/help">>] ->
+                    %% List of commands for hub
+                    HelpTextHub = [
+                      "/create [RoomName]     : create a public room\n",
+                      "/private [RoomName]    : create a private room\n",
+                      "/join [RoomName]       : join a room (if is private you need invitation)\n",
+                      "/close [RoomName]      : closes room (only owner)\n",
+                      "/list                  : show all available rooms for the user\n",
+                      "/to [User] [Message]   : sends private message to User\n",
+                      "/invite [User] [Room]  : invite User into your room (only owner)\n",
+                      "/accept [RoomName]     : accept invite to RoomName and join it\n",
+                      "/users                 : show list of connected users\n"
+                      "/help                  : show help\n"
+                    ],
+                    gen_tcp:send(Socket, list_to_binary(HelpTextHub)),
+                    hub_loop(Socket, Nickname);
+
 
                 _ ->
                     gen_tcp:send(Socket, <<"Unknown command.\r\n">>),
@@ -173,7 +214,12 @@ hub_loop(Socket, Nickname) ->
     end.
 
 
-% Loop inside room 
+%%%%%%%%
+%%% 
+%%%  ROOM LOOP 
+%%%  This is the room chat 
+%%% 
+%%%%%%%% 
 room_loop(Socket, Nickname, Room) ->
     receive
         {user_input, <<"/quit">>} ->
@@ -181,9 +227,92 @@ room_loop(Socket, Nickname, Room) ->
             gen_tcp:send(Socket, <<"Quitted room: ", Room/binary, "\r\n">>),
             start_hub(Socket, Nickname);
 
-        {user_input, Msg} ->
-            room_registry:broadcast(Room, Nickname, Msg),
+        {user_input, <<"/help">>} ->
+            HelpTextRoom = [
+              "/invite [User]     : invite User into current room (only for owner)\n",
+              "/accept [RoomName] : accept invite to RoomName (will take you to that room)\n",
+              "/quit              : leave room and go back to hub\n",
+              "/users             : show list of connected users\n"        
+              "/help              : show help\n"
+            ],
+            gen_tcp:send(Socket, list_to_binary(HelpTextRoom)),
             room_loop(Socket, Nickname, Room);
+
+        {user_input, <<"/users">>} ->
+            Users = user_registry:list_users(),
+            Formatted = io_lib:format("Connected users: ~p\r\n", [Users]),
+            gen_tcp:send(Socket, list_to_binary(Formatted)),
+            hub_loop(Socket, Nickname);
+
+        {user_input, Data} when is_binary(Data) ->
+            Commands = binary:split(Data, <<" ">>, [global, trim]),
+            case Commands of
+                [<<"/invite">>, Invited] ->
+                    case room_registry:get_owner(Room) of
+                        {ok, Owner} when Owner =:= Nickname ->
+                            case user_registry:get_pid(Invited) of
+                                {ok, ToPid} ->
+                                    case room_registry:get_room_pid(Room) of
+                                        {ok, RoomPid} ->
+                                            RoomPid ! {invite, Nickname, ToPid, Invited};
+                                        {error, not_found} ->
+                                            gen_tcp:send(Socket, <<"Room not found\r\n">>)
+                                    end,
+
+                                    gen_tcp:send(Socket, <<"Invitation sent to ", Invited/binary, "\r\n">>);
+                                {error, user_not_found} ->
+                                    gen_tcp:send(Socket, <<"User not found\r\n">>)
+                            end;
+
+                        {ok, _Other} ->
+                            gen_tcp:send(Socket, <<"You are not the owner of this room!\r\n">>);
+
+                        {error, _} ->
+                            gen_tcp:send(Socket, <<"Error checking room ownership\r\n">>)
+                    end,
+                    room_loop(Socket, Nickname, Room); 
+
+                [<<"/accept">>, OtherRoom] ->
+                    if OtherRoom =:= Room ->
+                        % The user is already into the room he has been invited to join
+                        gen_tcp:send(Socket, <<"You are already in room: ", Room/binary, "\r\n">>),
+                        room_loop(Socket, Nickname, Room);
+                    
+                    true ->
+                        % Send accept_invite to the OtherRoom
+                        case room_registry:get_room_pid(OtherRoom) of
+                            {ok, OtherPid} ->
+                                OtherPid ! {accept_invite, Nickname, self()},
+                                receive 
+                                    {join_ok} ->
+                                        room_registry:quit_room(Room, Nickname),
+                                        gen_tcp:send(Socket, <<"Switched to room: ", OtherRoom/binary, "\r\n">>),
+                                        room_loop(Socket, Nickname, OtherRoom);
+                                    
+                                    {join_denied} ->
+                                        gen_tcp:send(Socket, <<"You are not invited to room: ", OtherRoom/binary, "r\n">>),
+                                        room_loop(Socket, Nickname, Room)
+                                    
+                                after 1000 ->
+                                    gen_tcp:send(Socket, <<"Room did not respond.\r\n">>),
+                                    room_loop(Socket, Nickname, Room)
+                                end;
+
+                            {error, not_found} ->
+                                gen_tcp:send(Socket, <<"Room not found\r\n">>),
+                                room_loop(Socket, Nickname, Room)
+                        end
+                    end,
+                    room_loop(Socket, Nickname, Room);
+
+                [Message] ->
+                    room_registry:broadcast(Room, Nickname, Message),
+                    room_loop(Socket, Nickname, Room);
+
+                _ -> 
+                    gen_tcp:send(Socket, <<"Unknown command inside room.\r\n">>),
+                    room_loop(Socket, Nickname, Room)
+            end;
 
         {message, Room, From, Msg} ->
             gen_tcp:send(Socket, <<"[", Room/binary, "] ", From/binary, ": ", Msg/binary, "\r\n">>),
@@ -196,6 +325,11 @@ room_loop(Socket, Nickname, Room) ->
 
         {info, Message} ->
             gen_tcp:send(Socket, Message),
+            room_loop(Socket, Nickname, Room);
+
+        {invitation, OtherRoom, From} ->
+            gen_tcp:send(Socket, <<From/binary, " has invited you to room: ", OtherRoom/binary,
+                                    ". Type /accept ", OtherRoom/binary, " to join.\r\n">>),
             room_loop(Socket, Nickname, Room);
 
         Other ->

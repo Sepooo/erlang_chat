@@ -43,7 +43,7 @@ loop(State = #state{name=RoomName, owner=Owner, users=Users, invited=Invited}) -
                     FromPid ! {join_ok},
                     loop(State#state{users = NewUsers});
                 false ->
-                    FromPid ! {not_invited, <<"You have not been invited to join this room.\r\n">>},
+                    FromPid ! {join_denied},
                     loop(State)
             end;
 
