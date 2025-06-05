@@ -1,5 +1,5 @@
 -module(room_registry).
--export([start_link/0, create_room/3, join_room/2, broadcast/3, list_rooms/0, quit_room/2, close_room/2, get_room_pid/1, get_owner/1]).
+-export([start_link/0, create_room/3, request_join_room/2, broadcast/3, list_rooms/0, quit_room/2, close_room/2, get_room_pid/1, get_owner/1]).
 
 -define(TABLE, room_registry).
 
@@ -17,11 +17,18 @@ create_room(RoomName, Creator, IsPrivate) ->
             {error, already_exists}
     end.
 
-join_room(RoomName, Nickname) ->
+request_join_room(RoomName, Nickname) ->
     case ets:lookup(?TABLE, RoomName) of
         [{_, Pid}] ->
-            Pid ! {join, Nickname, self()},
-            ok;
+            Pid ! {request_join, Nickname, self()},
+            receive
+                {join_ok} ->
+                    ok;
+                {join_denied} ->
+                    {error, not_invited}
+            after 1000 ->
+                {error, timeout}
+            end;
         [] ->
             {error, room_not_found}
     end.
@@ -35,8 +42,19 @@ broadcast(RoomName, From, Message) ->
             {error, room_not_found}
     end.
 
+% {RoomName, Pid, IsPrivate, InvitedList}
 list_rooms() ->
-    ets:tab2list(?TABLE).
+    lists:map(fun({RoomName, Pid}) ->
+        Pid ! {get_room_info, self()},
+        receive
+            {room_info, RoomName, IsPrivate, InvitedList} ->
+                {RoomName, IsPrivate, InvitedList}
+        after 500 ->
+            {RoomName, error, []}
+        end
+    end, ets:tab2list(?TABLE)).
+
+
 
 quit_room(RoomName, Nickname) ->
     case ets:lookup(?TABLE, RoomName) of

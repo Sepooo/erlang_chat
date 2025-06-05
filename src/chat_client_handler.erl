@@ -60,13 +60,22 @@ hub_loop(Socket, Nickname) ->
                     hub_loop(Socket, Nickname);
                 
                 [<<"/join">>, Room] ->
-                    case room_registry:join_room(Room, Nickname) of
+                    case room_registry:request_join_room(Room, Nickname) of
                         ok ->
+                            gen_tcp:send(Socket, <<"You have joined room: ", Room/binary,"\r\n">>),
                             room_loop(Socket, Nickname, Room);
+                        
                         {error, room_not_found} ->
                             gen_tcp:send(Socket, <<"Room not found\r\n">>),
+                            hub_loop(Socket, Nickname);
+                    
+                        {error, not_invited} ->
+                            gen_tcp:send(Socket, <<"You have not been invited to this room.\r\n">>),
+                            hub_loop(Socket, Nickname);
+                
+                        {error, timeout} ->
+                            gen_tcp:send(Socket, <<"Room did not respond.\r\n">>),
                             hub_loop(Socket, Nickname)
-
                     end;
 
                 [<<"/quit">>, Room] ->
@@ -82,7 +91,13 @@ hub_loop(Socket, Nickname) ->
                 [<<"/list">>] ->
                     error_logger:info_msg("dentro list"),
                     Rooms = room_registry:list_rooms(),
-                    gen_tcp:send(Socket, list_to_binary(io_lib:format("Rooms: ~p\r\n", [Rooms]))),
+
+                    AvailableRooms = lists:filter(
+                        fun({_, false, _}) -> true;
+                           ({_, true, Invited}) -> lists:member(Nickname, Invited)
+                        end, Rooms),
+
+                    gen_tcp:send(Socket, list_to_binary(io_lib:format("Available rooms: ~p\r\n", [AvailableRooms]))),
                     hub_loop(Socket, Nickname);
 
                 [<<"/to">>, To | MessageParts] ->
@@ -91,6 +106,7 @@ hub_loop(Socket, Nickname) ->
                         {ok, ToPid} ->
                             ToPid ! {private, Nickname, Message},
                             gen_tcp:send(Socket, <<"[To: ", To/binary, "] ", Message/binary, "\r\n">>);
+                        
                         {error, user_not_found} ->
                             gen_tcp:send(Socket, <<"User not found\r\n">>)
                     end,
@@ -105,6 +121,7 @@ hub_loop(Socket, Nickname) ->
                                         {ok, ToPid} ->
                                             RoomPid ! {invite, Nickname, ToPid, Invited},
                                             gen_tcp:send(Socket, <<"Invitation sent to ", Invited/binary, "\r\n">>);
+                           
                                         {error, user_not_found} ->
                                             gen_tcp:send(Socket, <<"User not found\r\n">>)
                                     end;
@@ -114,10 +131,21 @@ hub_loop(Socket, Nickname) ->
                                 error ->
                                     gen_tcp:send(Socket, <<"Error checking room ownership\r\n">>)
                             end;
+                        
                         {error, not_found} ->
                             gen_tcp:send(Socket, <<"Room not found\r\n">>)
                     end,
-                    hub_loop(Socket, Nickname);    
+                    hub_loop(Socket, Nickname);   
+                
+                [<<"/accept">>, RoomName] ->
+                    case room_registry:get_room_pid(RoomName) of
+                        {ok, RoomPid} ->
+                            RoomPid ! {accept_invite, Nickname, self()},
+                            room_loop(Socket, Nickname, RoomName);
+                        _ ->
+                            gen_tcp:send(Socket, <<"Room not found\r\n">>),
+                            hub_loop(Socket, Nickname)
+                    end;
 
                 _ ->
                     gen_tcp:send(Socket, <<"Unknown command.\r\n">>),

@@ -19,38 +19,50 @@ loop(State = #state{name=RoomName, owner=Owner, users=Users, invited=Invited}) -
             ToPid ! {invitation, RoomName, From},
             loop(State#state{invited = [ToNickname | Invited]});
 
-        {accept_invite, Nickname, ClientPid} ->
+        {accept_invite, Nickname, FromPid} ->
             case lists:member(Nickname, State#state.invited) of
                 true ->
-                    NewUsers = Users#{Nickname => ClientPid},
-                    ClientPid ! {info, <<"You can now access private room: ", RoomName/binary, "\r\n">>},
+                    NewUsers = Users#{Nickname => FromPid},
+                    FromPid ! {join_ok},
                     loop(State#state{users = NewUsers});
                 false ->
-                    ClientPid ! {info, <<"You are not invited to this room.\r\n">>},
+                    FromPid ! {join_denied},
                     loop(State)
             end;
 
-        {join, Nick, ClientPid} ->
-            NewUsers = Users#{Nick => ClientPid},
-            ClientPid ! {info, <<"You joined room: ", RoomName/binary, "\r\n">>},
-            loop(State#state{users = NewUsers});
+        {request_join, Nickname, FromPid} ->
+            CanJoin =
+                case State#state.is_private of
+                    true -> lists:member(Nickname, [State#state.owner | State#state.invited]);
+                    false -> true
+                end,
+
+            case CanJoin of
+                true ->
+                    NewUsers = Users#{Nickname => FromPid},
+                    FromPid ! {join_ok},
+                    loop(State#state{users = NewUsers});
+                false ->
+                    FromPid ! {not_invited, <<"You have not been invited to join this room.\r\n">>},
+                    loop(State)
+            end;
 
         {broadcast, From, Msg} ->
             lists:foreach(
-                fun({_Nick, Pid}) ->
+                fun({_Nickname, Pid}) ->
                     Pid ! {message, RoomName, From, Msg}
                 end,
                 maps:to_list(Users)
             ),
             loop(State);
 
-        {quit, Nick} ->
-            NewUsers = maps:remove(Nick, Users),
+        {quit, Nickname} ->
+            NewUsers = maps:remove(Nickname, Users),
             loop(State#state{users = NewUsers});
 
-        {close, Nick} when Nick =:= Owner ->
+        {close, Nickname} when Nickname =:= Owner ->
             lists:foreach(
-                fun({_Nick, Pid}) ->
+                fun({_Nickname, Pid}) ->
                     Pid ! {info, <<"Room closed by Owner.">>}
                 end,
                 maps:to_list(Users)
@@ -59,6 +71,15 @@ loop(State = #state{name=RoomName, owner=Owner, users=Users, invited=Invited}) -
 
         {get_owner, From} ->
             From ! {owner, Owner},
+            loop(State);
+
+        {get_room_info, From} ->
+            InvitedWithOwner =
+                case State#state.is_private of
+                    true  -> lists:usort([State#state.owner | State#state.invited]);
+                    false -> []
+                end,
+            From ! {room_info, State#state.name, State#state.is_private, InvitedWithOwner},
             loop(State);
 
         _ ->
