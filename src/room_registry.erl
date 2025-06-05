@@ -7,6 +7,7 @@ start_link() ->
     ets:new(?TABLE, [named_table, public, set]),
     {ok, self()}.
 
+% Creates a public or private room (if IsPrivate is true)
 create_room(RoomName, Creator, IsPrivate) ->
     case ets:lookup(?TABLE, RoomName) of
         [] ->
@@ -42,7 +43,6 @@ broadcast(RoomName, From, Message) ->
             {error, room_not_found}
     end.
 
-% {RoomName, Pid, IsPrivate, InvitedList}
 list_rooms() ->
     lists:map(fun({RoomName, Pid}) ->
         Pid ! {get_room_info, self()},
@@ -53,7 +53,6 @@ list_rooms() ->
             {RoomName, error, []}
         end
     end, ets:tab2list(?TABLE)).
-
 
 
 quit_room(RoomName, Nickname) ->

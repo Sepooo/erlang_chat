@@ -9,7 +9,6 @@ start_link() ->
     ets:new(?TABLE, [named_table, public, set]),
     {ok, self()}.
 
-% Registration: check if nickname is already in the TABLE, than adds it to the list
 register(Nickname, Pid) ->
     case ets:lookup(?TABLE, Nickname) of
         [] ->

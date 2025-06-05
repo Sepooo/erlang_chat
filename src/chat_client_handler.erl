@@ -40,21 +40,21 @@ nickname_loop(Socket) ->
             nickname_loop(Socket)
     end.
 
-% Hub loop (outside room)
+% Starts hub loop
 start_hub(Socket, Nickname) ->
     error_logger:info_msg("start_hub pid: ~p~n", [self()]),
     
     Parent = self(),
     spawn_link(fun() -> socket_reader(Socket, Parent) end),
     hub_loop(Socket, Nickname).
-
-%%%%%%%%
-%%% 
-%%%  HUB LOOP 
-%%%  This is the section outside of a room, where the user can create rooms,
-%%%  close a room, invite a user or check the room list
-%%%
-%%%%%%%% 
+ 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%                                                                          %%%
+%%%  HUB LOOP                                                                %%%
+%%%  This is the section outside of a room, where the user can create rooms, %%%
+%%%  close a room, invite a user and lot of more things                      %%%
+%%%                                                                          %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 hub_loop(Socket, Nickname) ->
     error_logger:info_msg("Entered hub_loop (~p)~n", [self()]),
     receive
@@ -108,7 +108,7 @@ hub_loop(Socket, Nickname) ->
                     hub_loop(Socket, Nickname);
 
                 [<<"/to">>, To | MessageParts] ->
-                    Message = binary:join(MessageParts, <<" ">>),
+                    Message = iolist_to_binary(join_with_space(MessageParts)),
                     case user_registry:get_pid(To) of
                         {ok, ToPid} ->
                             ToPid ! {private, Nickname, Message},
@@ -181,7 +181,7 @@ hub_loop(Socket, Nickname) ->
                       "/to [User] [Message]   : sends private message to User\n",
                       "/invite [User] [Room]  : invite User into your room (only owner)\n",
                       "/accept [RoomName]     : accept invite to RoomName and join it\n",
-                      "/users                 : show list of connected users\n"
+                      "/users                 chis chi: show list of connected users\n"
                       "/help                  : show help\n"
                     ],
                     gen_tcp:send(Socket, list_to_binary(HelpTextHub)),
@@ -214,12 +214,12 @@ hub_loop(Socket, Nickname) ->
     end.
 
 
-%%%%%%%%
-%%% 
-%%%  ROOM LOOP 
-%%%  This is the room chat 
-%%% 
-%%%%%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%                            %%%
+%%%  ROOM LOOP                 %%%
+%%%  This is the room chat     %%%
+%%%                            %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 room_loop(Socket, Nickname, Room) ->
     receive
         {user_input, <<"/quit">>} ->
@@ -337,7 +337,11 @@ room_loop(Socket, Nickname, Room) ->
             room_loop(Socket, Nickname, Room)
     end.
 
-% Socket reader
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%  HELPER METHODS  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%% SOCKET READER
+%%%% Since gen_tcp:recv/2 is blocking, we cannot call it in the main process, otherwise it would block waiting for input. 
+%%%% This separates the reading in the socket_Reader process (valid both for hub_loop and room_loop)
 socket_reader(Socket, Parent) ->
     error_logger:info_msg("socket_reader parent: ~p~n", [Parent]),
     case gen_tcp:recv(Socket, 0) of
@@ -364,3 +368,8 @@ parse_nickname(Data) when is_binary(Data) ->
         <<>> -> error;
         _ -> {ok, Trimmed}
     end.
+
+% Join words separated by space
+join_with_space([]) -> [];
+join_with_space([H]) -> [H];
+join_with_space([H | T]) -> [H, <<" ">> | join_with_space(T)].

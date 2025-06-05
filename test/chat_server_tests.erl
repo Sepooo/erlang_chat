@@ -38,7 +38,7 @@ tcp_echo_test() ->
 
     gen_tcp:send(Socket, <<"Alice\r\n">>),
     {ok, Reply} = gen_tcp:recv(Socket, 0),
-    ?assertEqual(<<"Welcome Alice!\r\n">>, Reply),
+    ?assertEqual(<<"Welcome Alice!\nType /help for commands\r\n">>, Reply),
 
     gen_tcp:close(Socket),
     exit(PidSup, normal),
@@ -50,14 +50,14 @@ tcp_echo_test() ->
 
 % Test 4: room creation
 room_creation_test() ->
-    {ok, Pid} = room:start_link(<<"test_room">>, alice),
+    {ok, Pid} = room:start_link(<<"test_room">>, alice, false),
     ?assert(is_pid(Pid)),
     exit(Pid, normal).
 
 % Test 5: user joins a room
 join_user_test() ->
     flush_mailbox(),
-    {ok, RoomPid} = room:start_link(<<"room1">>, alice),
+    {ok, RoomPid} = room:start_link(<<"room1">>, alice, false),
     TestPid = self(),
     
     % Spawn a fake client to simulate the user
@@ -68,11 +68,11 @@ join_user_test() ->
         end 
     end),
 
-    RoomPid ! {join, bob, ClientPid},
+    RoomPid ! {request_join, bob, ClientPid},
 
     receive
-        {info, Message} ->
-            ?assertEqual(<<"You joined room: room1\r\n">>, Message)
+        {join_ok} ->
+            ?assert(true)
     after 1000 ->
         ?assert(false)
     end,
@@ -80,15 +80,15 @@ join_user_test() ->
 
 % Test 6: broadcast a message into a room
 broadcast_message_test() ->
-    {ok, RoomPid} = room:start_link(<<"room2">>, alice),
+    {ok, RoomPid} = room:start_link(<<"room2">>, alice, false),
     TestPid = self(),
 
     % fake client that sends messages
     ClientPid = spawn(fun() -> client_loop(TestPid) end),
 
-    RoomPid ! {join, bob, ClientPid},
+    RoomPid ! {request_join, bob, ClientPid},
 
-    receive {info, _} -> ok
+    receive {join_ok} -> ok
     after 1000 -> ?assert(false) end,
     
     RoomPid ! {broadcast, bob, <<"Hello everyone!">>},
@@ -109,12 +109,12 @@ client_loop(TestPid) ->
 % Test 7: join and quit room
 quit_room_test() ->
     flush_mailbox(),
-    {ok, RoomPid} = room:start_link(<<"room3">>, alice),
+    {ok, RoomPid} = room:start_link(<<"room3">>, alice, false),
     Self = self(),
-    RoomPid ! {join, charlie, Self},
+    RoomPid ! {request_join, charlie, Self},
     
     receive 
-        {info, _} -> 
+        {join_ok} -> 
             ok 
         after 1000 -> 
             ?assert(false) 
@@ -126,12 +126,12 @@ quit_room_test() ->
 % Test 8: owner closes room
 close_room_by_owner_test() ->
     flush_mailbox(),
-    {ok, RoomPid} = room:start_link(<<"room4">>, diana),
+    {ok, RoomPid} = room:start_link(<<"room4">>, diana, false),
     Self = self(),
-    RoomPid ! {join, eric, Self},
+    RoomPid ! {request_join, eric, Self},
 
     receive 
-        {info, _} -> 
+        {join_ok} -> 
             ok 
         after 1000 -> 
             ?assert(false) 
@@ -222,6 +222,88 @@ private_message_test() ->
     gen_tcp:close(Sock2),
     exit(Sup, normal),
     timer:sleep(100).
+
+%%%%%%%% =========== PRIVATE ROOMS =========== %%%%%%%%
+%% Test 12: only owner can send invitations in private room
+only_owner_can_invite_test() ->
+    {ok, Sup} = erlang_otp_chat_sup:start_link(),
+    {ok, _}  = erlang_otp_chat_sup:start_tcp_worker(undefined, {127,0,0,1}, 8080, []),
+    timer:sleep(100),
+
+    %% Alice creates private room
+    {ok, SockAlice} = gen_tcp:connect("localhost", 8080, [binary, {active,false}]),
+    gen_tcp:recv(SockAlice, 0),
+    gen_tcp:send(SockAlice, <<"alice\r\n">>),
+    gen_tcp:recv(SockAlice, 0),
+    gen_tcp:send(SockAlice, <<"/private secretroom\r\n">>),
+    gen_tcp:recv(SockAlice, 0), 
+
+    %% Bob connects
+    {ok, SockBob} = gen_tcp:connect("localhost", 8080, [binary, {active,false}]),
+    gen_tcp:recv(SockBob, 0),
+    gen_tcp:send(SockBob, <<"bob\r\n">>),
+    gen_tcp:recv(SockBob, 0),
+
+    %% Alice invites Bob into her private room
+    gen_tcp:send(SockAlice, <<"/invite bob secretroom\r\n">>),
+    gen_tcp:recv(SockAlice, 0), 
+    {ok, InviteMsg} = gen_tcp:recv(SockBob, 0),
+    ?assertMatch(<<"alice has invited you to the room: secretroom. Type /accept secretroom or /decline secretroom\r\n">>, InviteMsg),
+
+    %% Bob joins Alice's private room
+    gen_tcp:send(SockBob, <<"/join secretroom\r\n">>),
+    gen_tcp:recv(SockBob, 0),
+
+    %% Charlie connects
+    {ok, SockCharlie} = gen_tcp:connect("localhost", 8080, [binary, {active,false}]),
+    gen_tcp:recv(SockCharlie, 0),
+    gen_tcp:send(SockCharlie, <<"charlie\r\n">>),
+    gen_tcp:recv(SockCharlie, 0),
+
+    %% Bob tries to invite Charlie (but he is not the owner)
+    gen_tcp:send(SockBob, <<"/invite charlie\r\n">>),
+    {ok, Resp} = gen_tcp:recv(SockBob, 0),
+    ?assertEqual(<<"You are not the owner of this room!\r\n">>, Resp),
+
+    %% cleanup
+    gen_tcp:close(SockAlice),
+    gen_tcp:close(SockBob),
+    gen_tcp:close(SockCharlie),
+    exit(Sup, normal),
+    timer:sleep(100).
+
+%% Test 13: user cannot join private room without invitation
+cannot_join_private_room_without_invite_test() ->
+    {ok, Sup} = erlang_otp_chat_sup:start_link(),
+    {ok, _}  = erlang_otp_chat_sup:start_tcp_worker(undefined, {127,0,0,1}, 8080, []),
+    timer:sleep(100),
+
+    %% Alice creates private room
+    {ok, SockAlice} = gen_tcp:connect("localhost", 8080, [binary, {active,false}]),
+    gen_tcp:recv(SockAlice, 0),
+    gen_tcp:send(SockAlice, <<"alice2\r\n">>),
+    gen_tcp:recv(SockAlice, 0),
+    gen_tcp:send(SockAlice, <<"/private alice2room\r\n">>),
+    gen_tcp:recv(SockAlice, 0),
+
+    %% Bob connects but he is not invited
+    {ok, SockBob} = gen_tcp:connect("localhost", 8080, [binary, {active,false}]),
+    gen_tcp:recv(SockBob, 0),
+    gen_tcp:send(SockBob, <<"bob2\r\n">>),
+    {ok, Response1} = gen_tcp:recv(SockBob, 0),
+
+    %% Bob tries to join secret room
+    gen_tcp:send(SockBob, <<"/join alice2room\r\n">>),
+    {ok, Response} = gen_tcp:recv(SockBob, 0),
+    error_logger:info_msg(Response1, Response),
+    ?assertEqual(<<"You have not been invited to this room.\r\n">>, Response),
+
+    %% cleanup
+    gen_tcp:close(SockAlice),
+    gen_tcp:close(SockBob),
+    exit(Sup, normal),
+    timer:sleep(100).
+
 
 
 %%%%%%%% =========== HELPER FUNCTIONS =========== %%%%%%%%
